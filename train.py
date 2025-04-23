@@ -33,8 +33,6 @@ parser.add_argument('--weight_decay', type=float, default=3e-5, # 探索 1e-2, 5
                     help='Weight decay (L2 loss on parameters).')
 parser.add_argument('--node_hidden', type=int, default=[200],
                     help='Number of node hidden units.')
-# parser.add_argument('--edge_hidden', type=int, default=[100],
-#                     help='Number of edge hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
 
@@ -56,9 +54,6 @@ if args.cuda:
     torch.cuda.manual_seed(seed)
 
 # Load data
-# data_path = "./Networks/Uniform_100samples_25anchors_475agents_0Variance.mat"
-# num_sample, N_anchors, N_agents, idx_train, idx_val, idx_test, edge_range_all_no_noise, edge_dist_all, rownorm_adj_all, norm_adj_all, labels_all, edge_dist_anchors, edge_dist_nodes = load_data(data_path, threshold, percent_train, percent_val, percent_test)
-
 data_path = "./Networks/Uniform_100samples_25anchors_1875agents_00625Variance.mat"
 num_sample, N_anchors, N_agents, idx_train, idx_val, idx_test, edge_range_all, edge_dist_all, rownorm_adj_all, norm_adj_all, self_rownorm_adj_all, labels_all, edge_dist_anchors, edge_dist_nodes = load_data(data_path, threshold, percent_train, percent_val, percent_test)
 
@@ -66,9 +61,6 @@ num_sample, N_anchors, N_agents, idx_train, idx_val, idx_test, edge_range_all, e
 N = N_anchors + N_agents
 idx_anchors = range(N_anchors)
 idx_agents = range(N_anchors, N_anchors + N_agents)
-
-# Training Variable Initialization
-coeffs = Variable(torch.FloatTensor([[1., 0.],[1., 0.]]), requires_grad=True)
 
 # Model
 # model = GCN(nfeat=N,
@@ -85,7 +77,6 @@ model = MP_model(input_node_dim=2, # 2个本节点的node features，2个另一�
 # Transfer data to cuda
 if args.cuda:
     model.cuda()
-    coeffs.cuda()
     edge_dist_anchors = edge_dist_anchors.cuda()
     edge_dist_nodes = edge_dist_nodes.cuda()
     idx_train = idx_train.cuda()
@@ -105,7 +96,6 @@ if args.cuda:
         self_rownorm_adj_all[k] = self_rownorm_adj_all[k].cuda()
     
 # Optimizer
-coeffs_optimizer = optim.SGD([coeffs], lr=1e-3, momentum=0.0)
 optimizer = optim.Adam(model.parameters(),
                         lr=args.lr, weight_decay=args.weight_decay)
 
@@ -165,16 +155,13 @@ def get_node_features(anchors_labels, edge_features, adj):
     anchors_weights = edge_features[idx_anchors][:, idx_agents]
     anchors_weights = anchors_weights / (anchors_weights.sum(dim=1, keepdim=True)+epsilon)
     node_features[idx_anchors] = torch.mm(anchors_weights, node_features[idx_agents])
-    
-    # # 修正预测
-    # node_features[idx_agents] = lp_refine(idx_agents, idx_anchors, anchors_labels, node_features, adj)
+
     node_features[idx_anchors] = anchors_labels
     return node_features
 
 for k in range(num_sample):
     node_features = get_node_features(labels_all[k][idx_anchors], edge_features_all[k].to_dense(), rownorm_adj_all[k])
     node_features_all.append(node_features)
-# node_features_all = torch.load("node_features.pth")
 
 # Subsidiary Functions for Training Loss
 # Diatance
@@ -189,19 +176,6 @@ def compute_distance_matrix(A, B):
 # Criterion
 # RMSE loss function
 loss_fun = torch.nn.MSELoss()
-
-# Training loss function for model（暂时还没加入distance的信息）
-def loss_model(outputs, labels):
-    predic_dist_anchors = compute_distance_matrix(outputs[idx_anchors], labels[idx_anchors])
-    return loss_fun(outputs[idx_anchors], labels[idx_anchors]) + loss_fun(predic_dist_anchors, edge_dist_anchors)
-    # predic_dist_nodes = compute_distance_matrix(outputs, labels[idx_anchors])
-    # return loss_fun(outputs[idx_anchors], labels[idx_anchors]) + loss_fun(predic_dist_nodes, edge_dist_nodes)
-
-# Training loss function for residual correlation
-# 这个有问题的
-# def loss_corr(outputs, labels, adj, idx_anchors, idx_agents, coeffs):
-#     refined_outputs = lp_refine(idx_agents, idx_anchors, labels, outputs, adj, alpha0=coeffs[0][0], beta0=coeffs[0][1], alpha1=coeffs[1][0], beta1=coeffs[1][1])
-#     return loss_model(refined_outputs, labels)
     
 # R2 Function
 def R2(outputs, labels):
@@ -213,10 +187,8 @@ def R2(outputs, labels):
 def train(node_features, edge_features, adj, labels, epoch):
     t = time.time()
     model.train()
-    coeffs.requires_grad = False
     optimizer.zero_grad()
     output = model(node_features, edge_features, adj)
-    # output = model(edge_features, adj)
     loss_train = loss_fun(output, labels)
     loss_train.backward()
     optimizer.step()
@@ -225,25 +197,10 @@ def train(node_features, edge_features, adj, labels, epoch):
     loss = torch.sqrt(loss_fun(output[idx_agents], labels[idx_agents]))
     r2 = R2(output[idx_agents], labels[idx_agents])
     
-    # 用于训练residual correlation
-    # if (epoch+1) % 5 == 0:
-    #     model.eval()
-    #     coeffs.requires_grad = True
-    #     for param in model.parameters():
-    #         param.requires_grad = False
-    #     coeffs_optimizer.zero_grad()
-    #     output = model(node_features, edge_features, adj)
-    #     loss_train = loss_corr(output, labels, adj, idx_anchors, idx_agents, coeffs)
-    #     loss_train.backward()
-    #     coeffs_optimizer.step()
-    #     for param in model.parameters():
-    #         param.requires_grad = True
-    
     # Evaluate the model
     if not args.fastmode:
         model.eval()
         output = model(node_features, edge_features, adj)
-        # output = model(edge_features, adj)
     
     loss_val = torch.sqrt(loss_fun(output[idx_agents], labels[idx_agents]))
     r2_val = R2(output[idx_agents], labels[idx_agents])
@@ -253,24 +210,13 @@ def train(node_features, edge_features, adj, labels, epoch):
 def test(node_features, edge_features, rownorm_adj, norm_adj, labels, epoch):
     model.eval()
     output = model(node_features, edge_features, rownorm_adj)
-    # output = model(edge_features, rownorm_adj)
     
-    # Label Propagation
+    # refinement
     prediction_raw = lp_refine(idx_agents, idx_anchors, labels, output, norm_adj)
     
-    # Maximize Likelihood
-    # prediction = lp_refine(idx_agents, idx_anchors, labels, output, adj, alpha0=coeffs[0][0], beta0=coeffs[0][1], alpha1=coeffs[1][0], beta1=coeffs[1][1])
-    
-    # loss = torch.sqrt(loss_fun(prediction, labels[idx_agents]))
     loss = torch.sqrt(loss_fun(prediction_raw, labels[idx_agents]))
-    # loss = torch.sqrt(loss_fun(output[idx_agents], labels[idx_agents]))
-    # loss = loss(output, labels, idx_agents, adj, coeffs, True)
-    # r2 = R2(output[idx_agents], labels[idx_agents])
-    # r2_test_refine = R2(prediction, labels[idx_agents])
     r2_test_refine_raw = R2(prediction_raw, labels[idx_agents])
-    # if epoch == 199:
-    #     torch.save(labels[idx_agents], "agent_label_sample.pt")
-    #     torch.save(prediction_raw, "agent_predict_sample.pt")
+  
     return loss, r2_test_refine_raw
 
 # Variables declaration
@@ -296,7 +242,6 @@ for epoch in range(args.epochs):
         r2_val = []
     for batch in idx_train:
         loss_anchors_tem, loss_train_tem, r2_train_tem, loss_val_tem, r2_val_tem = train(node_features_all[batch], edge_features_all[batch], rownorm_adj_all[batch], labels_all[batch], epoch)
-        # loss_anchors_tem, loss_train_tem, r2_train_tem, loss_val_tem, r2_val_tem = train(node_features_all[batch], edge_features_all[batch], self_rownorm_adj_all[batch], labels_all[batch], epoch)
         loss_anchors.append(loss_anchors_tem)
         loss_train.append(loss_train_tem)
         r2_train.append(r2_train_tem)
@@ -315,7 +260,6 @@ for epoch in range(args.epochs):
     r2_test = []
     for batch in idx_test:
         loss_test_tem, r2_test_tem = test(node_features_all[batch], edge_features_all[batch], rownorm_adj_all[batch], norm_adj_all[batch], labels_all[batch], epoch)
-        # loss_test_tem, r2_test_tem = test(node_features_all[batch], edge_features_all[batch], self_rownorm_adj_all[batch], norm_adj_all[batch], labels_all[batch])
         loss_test.append(loss_test_tem)
         r2_test.append(r2_test_tem)
     loss_test_total[epoch] = sum(loss_test) / len(loss_test)
@@ -329,15 +273,8 @@ for epoch in range(args.epochs):
             'r2_val: {:.4f}'.format(r2_val_total[epoch].item()),
             'loss_test (RMSE): {:.4f}'.format(loss_test_total[epoch].item()),
             'r2_test: {:.4f}'.format(r2_test_total[epoch].item()),
-            # "alpha= {:.4f}".format(torch.tanh(coeffs[0]).item()),
-            # "beta= {:.4f}".format(torch.exp(coeffs[1]).item()),
             'time: {:.4f}s'.format(time.time() - t_epoch)
             )
-
-# result = []
-# for batch in range(num_sample):
-#     result.append(model(node_features, edge_features_all[batch], rownorm_adj_all[batch]))
-# torch.save(result, "gcn_node_features.pth")
 
 # Save model's parameters
 # torch.save(model.state_dict(), 'model_weights.pth')
@@ -372,8 +309,6 @@ print("\nBest Train results:",
       "Best Test results:", 
       "loss= {:.4f} (RMSE)".format(loss_test_total[best_idx]), 
       "r2= {:.4f}\n".format(r2_test_total[best_idx]), 
-    #   "alpha= {:.4f}".format(alpha_final), 
-    #   "beta= {:.4f}".format(beta_final)
     )
 
 nowTime = datetime.datetime.now().strftime('%Y-%m-%d-%H_%M_%S')  # Get the Now time
@@ -403,8 +338,4 @@ file_handle.write('Best Results:' + '\n')
 file_handle.write('loss_train (RMSE): ' + str(loss_train_total[best_idx]) + 'r2_train: ' + str(r2_train_total[best_idx]) + '\n')
 file_handle.write('loss_val (RMSE): ' + str(loss_val_total[best_idx]) + 'r2_val: ' + str(r2_val_total[best_idx]) + '\n')
 file_handle.write('loss_test (RMSE): ' + str(loss_test_total[best_idx]) + 'r2_test: ' + str(r2_test_total[best_idx]) + '\n')
-# file_handle.write('alpha0: ' + str(coeffs[0][0]) + '\n')
-# file_handle.write('alpha1: ' + str(coeffs[0][1]) + '\n')
-# file_handle.write('beta0: ' + str(coeffs[1][0]) + '\n')
-# file_handle.write('beta1: ' + str(coeffs[1][1]) + '\n')
 file_handle.close()
