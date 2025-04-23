@@ -104,7 +104,7 @@ class Readout(Module):
         # 构建邻居的node features集合
         neighbor_node_features = torch.spmm(adj, node_features)
         # 构建邻居edge fatures的集合
-        neighbor_edge_features = torch.spmm(adj, edge_features).to_dense().diagonal().unsqueeze(1) # edge embedding到底要当成向量还是当成一个数值呢
+        neighbor_edge_features = torch.spmm(adj, edge_features).to_dense().diagonal().unsqueeze(1) # edge embedding
         support = torch.cat((node_features, neighbor_node_features, neighbor_edge_features), dim=1)
         output = torch.mm(support, self.weight)
         if self.bias is not None:
