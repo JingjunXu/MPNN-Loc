@@ -25,45 +25,10 @@ class MessagePassing(Module):
         self.v_attn.data.uniform_(-node_stdv, node_stdv)
 
     def forward(self, node_features, edge_features, adj):
-        # 尝试加入attention
-        # 基于node_feature的attention
-        # attn_node_features = F.relu(torch.mm(node_features, self.W_attn))
-        # expanded_rows = attn_node_features.unsqueeze(1)
-        # expanded_cols = attn_node_features.unsqueeze(0)
-        # pairwise_diff = torch.abs(expanded_rows - expanded_cols)
-        # attn_score = torch.matmul(pairwise_diff, self.v_attn).squeeze(-1)
-        # min_values = attn_score.min(dim=1, keepdim=True).values
-        # max_values = attn_score.max(dim=1, keepdim=True).values
-        # normalized_attn_score = (attn_score - min_values) / (max_values - min_values + 1e-8)
-        # adjusted_adj = torch.mul(adj.to_dense(), normalized_attn_score)
-        
-        # row_norms = torch.norm(node_features, p=2, dim=1, keepdim=True)
-        # row_norms = torch.where(row_norms == 0, torch.ones_like(row_norms), row_norms) # 防止0
-        # normalized_node_features = node_features / row_norms
-        # adjusted_adj = torch.mul(adj, torch.mm(normalized_node_features, normalized_node_features.T))
-        
-        # row_norms = torch.norm(edge_features.to_dense(), p=2, dim=1, keepdim=True)
-        # row_norms = torch.where(row_norms == 0, torch.ones_like(row_norms), row_norms) # 防止0
-        # normalized_edge_features = edge_features.to_dense() / row_norms
-        # adjusted_adj = torch.mul(adj, torch.mm(normalized_edge_features, normalized_edge_features.T))
-        
-        # 基于edge feature的attention
-        # attn_edge_features = F.relu(torch.mm(edge_features, self.W_attn))
-        # expanded_rows = attn_edge_features.unsqueeze(1)
-        # expanded_cols = attn_edge_features.unsqueeze(0)
-        # pairwise_diff = torch.abs(expanded_rows - expanded_cols)
-        # attn_score = torch.matmul(pairwise_diff, self.v_attn).squeeze(-1)
-        # min_values = attn_score.min(dim=1, keepdim=True).values
-        # max_values = attn_score.max(dim=1, keepdim=True).values
-        # normalized_attn_score = (attn_score - min_values) / (max_values - min_values + 1e-8)
-        # adjusted_adj = torch.mul(adj.to_dense(), normalized_attn_score)
-        
         # 构建邻居的node features集合
         neighbor_node_features = torch.spmm(adj, node_features)
-        # neighbor_node_features = torch.mm(adjusted_adj, node_features)
         # 构建邻居edge fatures的集合
-        neighbor_edge_features = torch.spmm(adj, edge_features).to_dense().diagonal().unsqueeze(1) # edge embedding到底要当成向量还是当成一个数值呢
-        # neighbor_edge_features = torch.mm(adjusted_adj, edge_features).to_dense().diagonal().unsqueeze(1)
+        neighbor_edge_features = torch.spmm(adj, edge_features).to_dense().diagonal().unsqueeze(1) # edge embedding
         return torch.cat((node_features, neighbor_node_features, neighbor_edge_features), dim=1)
 
     def __repr__(self):
@@ -73,7 +38,7 @@ class MessagePassing(Module):
                
 class FeatureUpdate(Module):
     """
-    Message Passing Layer
+    Feature Update Layer
     """
     def __init__(self, input_node_dim, output_node_dim, output_edge_dim, bias=True):
         super(FeatureUpdate, self).__init__()
@@ -116,7 +81,7 @@ class FeatureUpdate(Module):
                
 class Readout(Module):
     """
-    Message Passing Layer
+    Readout Layer
     """
     def __init__(self, input_node_dim, output_dim, bias=True):
         super(Readout, self).__init__()
