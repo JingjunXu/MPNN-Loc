@@ -130,7 +130,7 @@ def lp_refine(idx_test, idx_train, labels, output, adj, alpha0=1., beta0=1., alp
 
     return refined_test
 
-# 确定node_features和edge_features
+# node_features and edge_features
 edge_features_all = edge_range_all
 node_features_all = []
 def get_node_features(anchors_labels, edge_features, adj):
@@ -139,22 +139,16 @@ def get_node_features(anchors_labels, edge_features, adj):
     if args.cuda:
         node_features = node_features.cuda()
     
-    # 获得关于anchors的weights，直接等于距离最近的anchors（鲁棒性好一些）
+    # set agents' features the same as their nearest anchors
     agents_weights = edge_features[idx_agents][:, idx_anchors]
     agents_weights = agents_weights / (agents_weights.sum(dim=1, keepdim=True)+epsilon)
-    # 将node的初始化换成离node最近的点
     min_non_zero_values = torch.where(agents_weights != 0, agents_weights, torch.tensor(float('inf'))).amin(dim=1, keepdim=True)
     agents_weights = torch.where(agents_weights == min_non_zero_values, torch.tensor(1.0), torch.where(agents_weights != 0, torch.tensor(0.0), agents_weights))
-    # 将没有与任何一个点都离的近的node的初始化从(0,0)变成图的中间
+    # set outlier agents' features at the middle of the network
     all_zero_rows = (agents_weights == 0).all(dim=1)
     agents_weights[all_zero_rows] = 1. / agents_weights.size(1)
 
     node_features[idx_agents] = torch.mm(agents_weights, anchors_labels)
-    
-    # 利用edge的信息反推一波anchors的坐标，利用lp_refine，对预测出来的agents的初始node_features进行一个修正
-    anchors_weights = edge_features[idx_anchors][:, idx_agents]
-    anchors_weights = anchors_weights / (anchors_weights.sum(dim=1, keepdim=True)+epsilon)
-    node_features[idx_anchors] = torch.mm(anchors_weights, node_features[idx_agents])
 
     node_features[idx_anchors] = anchors_labels
     return node_features
@@ -326,8 +320,6 @@ file_handle.write("Epoches: " + str(args.epochs) + "\n")
 file_handle.write("Learning Rate: " + str(args.lr) + "\n")
 file_handle.write("Weight Decay: " + str(args.weight_decay) + "\n")
 file_handle.write("Hidden node numbers: " + str(args.node_hidden) + "\n")
-# file_handle.write("Hidden edge numbers: " + str(args.edge_hidden) + "\n")
-# file_handle.write("Number neighbor list: " + str(num_neighbors_list) + "\n")
 file_handle.write("Dropout: " + str(args.dropout) + "\n")
 # Results
 file_handle.write('Average Results:' + '\n')
